@@ -152,7 +152,7 @@ class BigShadowDetector:
         self._validate_data()
         self.data = data.copy()
 
-    def _validate_data(self):
+    def _validate_data(self) -> None:
         """Validate the data"""
         if self.data is None:
             raise ValueError("data must be specified")
@@ -163,16 +163,32 @@ class BigShadowDetector:
         if not isinstance(self.data.index, pd.DatetimeIndex):
             raise ValueError("Data index must be a datetime index")
 
-    def _bigger_high_low_than_last_candle(self):
+    def _bullish_close_higher_than_last_open(self) -> None:
+        """Check if the close price is higher than the last open price"""
+        self.data["bullish_close_higher_than_last_open"] = self.data.Close > self.data.Open.shift(1)
+
+    def _bearish_close_lower_than_last_open(self) -> None:
+        """Check if the close price is lower than the last open price"""
+        self.data["bearish_close_lower_than_last_open"] = self.data.Close < self.data.Open.shift(1)
+
+    def _bigger_high_low_than_last_candle(self) -> None:
         """Check if the current candle has both a higher high and a lower low than the last candle"""
+
         self.data["engulfing"] = ((self.data.High > self.data.High.shift(1)) &
                                   (self.data.Low < self.data.Low.shift(1)))
 
-    def _calculate_candle_ranges(self):
+    def _bigger_body_range_than_last_candle(self) -> None:
+        """Check if the body range is bigger than the previous candle"""
+        self.data["body_range"] = abs(self.data.Open - self.data.Close)
+        self.data["body_range_prev"] = abs(self.data.Open.shift(1) - self.data.Close.shift(1))
+        self.data["bigger_body"] = self.data["body_range"] > self.data["body_range_prev"]
+
+    def _calculate_candle_ranges(self) -> None:
         """Calculate the range of the candle"""
         self.data["candle_range"] = self.data.High - self.data.Low
 
-    def _bigger_than_previous_n_candles(self, n=10):
+    def _bigger_than_previous_n_candles(self,
+                                        n: int = 10) -> None:
         """Check if the candle is bigger than the previous n candles"""
         self._calculate_candle_ranges()
         for index in range(n, len(self.data)):
@@ -181,55 +197,80 @@ class BigShadowDetector:
             last_n_ranges_max = np.max(last_n_ranges)
             self.data.loc[self.data.index[index], f"bigger_than_{n}_prev_candles"] = current_range > last_n_ranges_max
 
-    def _get_sma(self, window=10):
+    def _get_sma(self,
+                 ma_window: int = 10) -> None:
         """Calculate the simple moving average of the candle range. Window size is n"""
-        self.data[f"sma_{window}"] = self.data["Close"].rolling(window).mean()
+        self.data[f"sma_{ma_window}"] = self.data["Close"].rolling(ma_window).mean()
 
-    def _get_ema(self, window=10):
+    def _get_ema(self, ma_window=10) -> None:
         """Calculate the exponential moving average of the candle range. Window size is n"""
-        self.data[f"ema_{window}"] = self.data["Close"].ewm(span=window, adjust=False).mean()
+        self.data[f"ema_{ma_window}"] = self.data["Close"].ewm(span=ma_window, adjust=False).mean()
 
-    def _get_trend(self, window=10, method="sma"):
+    def _get_trend(self, ma_window=20, trend_candles_check=10, method="sma") -> None:
         """Get the trend of the candle range"""
         if method == "sma":
-            self._get_sma(window)
-            moving_avg_col = f"sma_{window}"
+            self._get_sma(ma_window)
+            moving_avg_col = f"sma_{ma_window}"
         elif method == "ema":
-            self._get_ema(window)
-            moving_avg_col = f"ema_{window}"
+            self._get_ema(ma_window)
+            moving_avg_col = f"ema_{ma_window}"
         else:
             raise ValueError("method must be either 'sma' or 'ema'")
 
         mask_above_ma = self.data["Close"] > self.data[moving_avg_col]
         mask_below_ma = self.data["Close"] < self.data[moving_avg_col]
 
-        uptrend_condition = mask_above_ma.rolling(window=window).sum() == window
-        downtrend_condition = mask_below_ma.rolling(window=window).sum() == window
+        uptrend_condition = mask_above_ma.rolling(window=trend_candles_check).sum() == trend_candles_check
+        downtrend_condition = mask_below_ma.rolling(window=trend_candles_check).sum() == trend_candles_check
 
         self.data["trend"] = "Mixed"
         self.data.loc[uptrend_condition, "trend"] = "Uptrend"
         self.data.loc[downtrend_condition, "trend"] = "Downtrend"
 
-    def _identify_bearish_big_shadow(self, n=7, window=10, method="sma"):
+    def _close_price_near_low(self) -> None:
+        """Check if the close price is near the low of the candle"""
+        self.data["low_to_close"] = abs(self.data.Low - self.data.Close)
+        self.data["mid_point_open_close"] = abs(self.data.Open - self.data.Close) / 2
+        self.data["close_near_low"] = (self.data["low_to_close"] < self.data["mid_point_open_close"])
+
+    def _close_price_near_high(self) -> None:
+        """Check if the close price is near the high of the candle"""
+        self.data["high_to_close"] = abs(self.data.High - self.data.Close)
+        self.data["mid_point_open_close"] = abs(self.data.Open - self.data.Close) / 2
+        self.data["close_near_high"] = (self.data["high_to_close"] < self.data["mid_point_open_close"])
+
+    def _identify_bearish_big_shadow(self, n=7, ma_window=20, trend_check_window=10, method="sma") -> None:
         """Identify the bearish big shadow"""
         self._bigger_high_low_than_last_candle()
+        self._bigger_body_range_than_last_candle()
+        self._bearish_close_lower_than_last_open()
         self._bigger_than_previous_n_candles(n)
-        self._get_trend(window=window, method=method)
-        self.data["bearish_big_shadow"] = ((self.data["engulfing"]) &
-                                           (self.data[f"bigger_than_{n}_prev_candles"]) &
-                                           (self.data["trend"] == "Downtrend"))
+        self._get_trend(ma_window=ma_window, method=method, trend_candles_check=trend_check_window)
+        self._close_price_near_low()
+        self.data["bearish_big_shadow"] = ((self.data["engulfing"])
+                                           & (self.data[f"bigger_than_{n}_prev_candles"])
+                                           & (self.data["bearish_close_lower_than_last_open"])
+                                           & (self.data["trend"] == "Uptrend")
+                                           & (self.data["close_near_low"])
+                                           & (self.data["bigger_body"]))
 
-    def _identify_bullish_big_shadow(self, n=7, window=10, method="sma"):
+    def _identify_bullish_big_shadow(self, n=7, ma_window=20, trend_check_window=10, method="sma") -> None:
         """Identify the bullish big shadow"""
         self._bigger_high_low_than_last_candle()
+        self._bigger_body_range_than_last_candle()
+        self._bullish_close_higher_than_last_open()
         self._bigger_than_previous_n_candles(n)
-        self._get_trend(window=window, method=method)
-        self.data["bullish_big_shadow"] = ((self.data["engulfing"]) &
-                                           (self.data[f"bigger_than_{n}_prev_candles"]) &
-                                           (self.data["trend"] == "Uptrend"))
+        self._get_trend(ma_window=ma_window, method=method, trend_candles_check=trend_check_window)
+        self._close_price_near_high()
+        self.data["bullish_big_shadow"] = ((self.data["engulfing"])
+                                           & (self.data[f"bigger_than_{n}_prev_candles"])
+                                           & (self.data["bullish_close_higher_than_last_open"])
+                                           & (self.data["trend"] == "Downtrend")
+                                           & (self.data["close_near_high"])
+                                           & (self.data["bigger_body"]))
 
-    def get_big_shadow(self, n=7, window=10, method="sma"):
+    def get_big_shadow(self, n=7, trend_check_window=10, ma_window=20, method="sma") -> pd.DataFrame:
         """Get the big shadow"""
-        self._identify_bearish_big_shadow(n=n, window=window, method=method)
-        self._identify_bullish_big_shadow(n=n, window=window, method=method)
+        self._identify_bearish_big_shadow(n=n, ma_window=ma_window, method=method, trend_check_window=trend_check_window)
+        self._identify_bullish_big_shadow(n=n, ma_window=ma_window, method=method, trend_check_window=trend_check_window)
         return self.data
