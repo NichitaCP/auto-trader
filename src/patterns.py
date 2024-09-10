@@ -3,7 +3,7 @@ from scipy.stats import gaussian_kde
 import numpy as np
 from scipy.signal import find_peaks
 import matplotlib.pyplot as plt
-from typing import Tuple
+from typing import Tuple, Literal
 
 
 class SRDetector:
@@ -142,4 +142,113 @@ class KangarooTailDetector:
     def identify_kangaroo_tails(self) -> pd.DataFrame:
         """Identify the kangaroo tails"""
         self._identify_conditions()
+        return self.data
+
+
+class BigShadowDetector:
+    def __init__(self,
+                 data: pd.DataFrame = None) -> None:
+        self.data = data
+        self._validate_data()
+        self.data = data.copy()
+
+    def _validate_data(self):
+        """Validate the data"""
+        if self.data is None:
+            raise ValueError("data must be specified")
+        required_columns = ["Open", "High", "Low", "Close"]
+        for col in required_columns:
+            if col not in self.data.columns:
+                raise ValueError(f"{col} not in data")
+        if not isinstance(self.data.index, pd.DatetimeIndex):
+            raise ValueError("Data index must be a datetime index")
+
+    def _higher_lower_than_last_candle(self):
+        """Check if the current candle has both a higher high and a lower low than the last candle"""
+        self.data["engulfing"] = ((self.data.High > self.data.High.shift(1)) &
+                                  (self.data.Low < self.data.Low.shift(1)))
+
+    def _calculate_candle_ranges(self):
+        """Calculate the range of the candle"""
+        self.data["candle_range"] = self.data.High - self.data.Low
+
+    def _bigger_than_previous_n_candles(self, n=10):
+        """Check if the candle is bigger than the previous n candles"""
+        self._calculate_candle_ranges()
+        for index in range(n, len(self.data)):
+            current_range = self.data["candle_range"].iloc[index]
+            last_n_ranges = self.data["candle_range"].iloc[index - n:index]  # The 10 previous candle's ranges
+            last_n_ranges_max = np.max(last_n_ranges)
+            self.data.loc[self.data.index[index], f"bigger_than_{n}_prev_candles"] = current_range > last_n_ranges_max
+
+    def _get_sma_uptrend(self, n=20):
+        """Calculate the SMA trend"""
+        sma_n = self.data["Close"].rolling(window=n).mean()
+        if (self.data["Close"] > sma_n).all():
+            return "uptrend"
+        elif (self.data["Close"] < sma_n).all():
+            return "downtrend"
+        else:
+            return "mixed"
+
+    def _get_ema_uptrend(self, n=20):
+        """Calculate the EMA trend"""
+        if len(self.data) < n:
+            raise ValueError("Data is too small to calculate the trend. Adjust the window size")
+        ema_n = self.data["Close"].ewm(span=n, adjust=False).mean()
+        if (self.data["Close"] > ema_n).all():
+            return "uptrend"
+        elif (self.data["Close"] < ema_n).all():
+            return "downtrend"
+        else:
+            return "mixed"
+
+    def _identify_last_n_candles_trend(self,
+                                       method: Literal["ema", "sma"] = "ema",
+                                       n=20):
+        """Identify the trend of the last n candles"""
+        if len(self.data) < n:
+            raise ValueError("Data is too small to calculate the trend. Adjust the window size")
+
+        method_dict = {"ema": self._get_ema_uptrend(n),
+                       "sma": self._get_sma_uptrend(n)}
+
+        if method not in method_dict:
+            raise ValueError("Method must be either 'ema' or 'sma'")
+
+        trend = method_dict[method]
+        self.data[f"last_{n}_candles_trend"] = trend
+
+    def _identify_bearish_big_shadows(self,
+                                      n=10,
+                                      method: Literal["ema", "sma"] = "ema") -> None:
+        """Identify the big shadows"""
+        self._higher_lower_than_last_candle()
+        self._bigger_than_previous_n_candles(n)
+        self._identify_last_n_candles_trend(method)
+        all_conditions_met_bearish = (self.data["engulfing"]
+                                      & self.data[f"bigger_than_{n}_prev_candles"]
+                                      & (self.data[f"last_{n}_candles_trend"] == "uptrend"))
+
+        self.data["bearish_big_shadow"] = np.where(all_conditions_met_bearish, 1, 0)
+
+    def _identify_bullish_big_shadows(self,
+                                      n=10,
+                                      method: Literal["ema", "sma"] = "ema") -> None:
+        """Identify the big shadows"""
+        self._higher_lower_than_last_candle()
+        self._bigger_than_previous_n_candles(n)
+        self._identify_last_n_candles_trend(method)
+        all_conditions_met_bullish = (self.data["engulfing"]
+                                      & self.data[f"bigger_than_{n}_prev_candles"]
+                                      & (self.data[f"last_{n}_candles_trend"] == "downtrend"))
+
+        self.data["bullish_big_shadow"] = np.where(all_conditions_met_bullish, 1, 0)
+
+    def get_big_shadows(self,
+                        n=10,
+                        method: Literal["ema", "sma"] = "ema") -> pd.DataFrame:
+        """Get the big shadows"""
+        self._identify_bearish_big_shadows(n, method)
+        self._identify_bullish_big_shadows(n, method)
         return self.data
