@@ -87,7 +87,7 @@ class KangarooTailDetector:
         self.data = data.copy()
         self._validate_data()
 
-    def _validate_data(self):
+    def _validate_data(self) -> None:
         """Validate the data"""
         required_columns = ["Open", "High", "Low", "Close"]
         for col in required_columns:
@@ -202,11 +202,15 @@ class BigShadowDetector:
         """Calculate the simple moving average of the candle range. Window size is n"""
         self.data[f"sma_{ma_window}"] = self.data["Close"].rolling(ma_window).mean()
 
-    def _get_ema(self, ma_window=10) -> None:
+    def _get_ema(self,
+                 ma_window: int = 10) -> None:
         """Calculate the exponential moving average of the candle range. Window size is n"""
         self.data[f"ema_{ma_window}"] = self.data["Close"].ewm(span=ma_window, adjust=False).mean()
 
-    def _get_trend(self, ma_window=20, trend_candles_check=10, method="sma") -> None:
+    def _get_trend(self,
+                   ma_window: int = 20,
+                   trend_candles_check: int = 10,
+                   method: Literal["ema", "sma"] = "sma") -> None:
         """Get the trend of the candle range"""
         if method == "sma":
             self._get_sma(ma_window)
@@ -239,7 +243,11 @@ class BigShadowDetector:
         self.data["mid_point_open_close"] = abs(self.data.Open - self.data.Close) / 2
         self.data["close_near_high"] = (self.data["high_to_close"] < self.data["mid_point_open_close"])
 
-    def _identify_bearish_big_shadow(self, n=7, ma_window=20, trend_check_window=10, method="sma") -> None:
+    def _identify_bearish_big_shadow(self,
+                                     n: int = 7,  # Number of candles to lookback for the range
+                                     ma_window: int = 20,
+                                     trend_check_window: int = 10,
+                                     method: Literal["sma", "ema"] = "sma") -> None:
         """Identify the bearish big shadow"""
         self._bigger_high_low_than_last_candle()
         self._bigger_body_range_than_last_candle()
@@ -254,7 +262,11 @@ class BigShadowDetector:
                                            & (self.data["close_near_low"])
                                            & (self.data["bigger_body"]))
 
-    def _identify_bullish_big_shadow(self, n=7, ma_window=20, trend_check_window=10, method="sma") -> None:
+    def _identify_bullish_big_shadow(self,
+                                     n: int = 7,  # Number of candles to lookback for the range
+                                     ma_window: int = 20,
+                                     trend_check_window: int = 10,
+                                     method: Literal["sma", "ema"] = "sma") -> None:
         """Identify the bullish big shadow"""
         self._bigger_high_low_than_last_candle()
         self._bigger_body_range_than_last_candle()
@@ -269,8 +281,19 @@ class BigShadowDetector:
                                            & (self.data["close_near_high"])
                                            & (self.data["bigger_body"]))
 
-    def get_big_shadow(self, n=7, trend_check_window=10, ma_window=20, method="sma") -> pd.DataFrame:
+    def get_big_shadow(self,
+                       n: int = 7,  # Number of candles to lookback for the range
+                       ma_window: int = 20,
+                       trend_check_window: int = 10,
+                       method: Literal["sma", "ema"] = "sma") -> pd.DataFrame:
         """Get the big shadow"""
-        self._identify_bearish_big_shadow(n=n, ma_window=ma_window, method=method, trend_check_window=trend_check_window)
-        self._identify_bullish_big_shadow(n=n, ma_window=ma_window, method=method, trend_check_window=trend_check_window)
+        self._identify_bearish_big_shadow(n=n,
+                                          ma_window=ma_window,
+                                          method=method,
+                                          trend_check_window=trend_check_window)
+
+        self._identify_bullish_big_shadow(n=n,
+                                          ma_window=ma_window,
+                                          method=method,
+                                          trend_check_window=trend_check_window)
         return self.data
