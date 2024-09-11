@@ -315,3 +315,32 @@ class BigShadowDetector:
                                           method=method,
                                           trend_check_window=trend_check_window)
         return self.data
+
+
+class AverageTrueRange:
+    def __init__(self,
+                 data: pd.DataFrame = None) -> None:
+        if data is None:
+            raise ValueError("data must be specified")
+        self.data = data.copy()
+
+    def _get_true_range(self):
+        """Calculate the true range of the data"""
+        high_low = self.data.High - self.data.Low
+        high_prev_close = abs(self.data.High - self.data.Close.shift(1))
+        low_prev_close = abs(self.data.Low - self.data.Close.shift(1))
+        self.data["true_range"] = np.max([high_low, high_prev_close, low_prev_close], axis=0)
+
+    def get_atr(self,
+                window: int = 14,
+                smoothing: Literal["ema", "sma"] = "sma") -> pd.DataFrame:
+        """Compute the average true range given a window size"""
+        self._get_true_range()
+        if smoothing == "sma":
+            self.data["atr"] = self.data["true_range"].rolling(window).mean()
+        elif smoothing == "ema":
+            self.data["atr"] = self.data["true_range"].ewm(span=window, adjust=False).mean()
+        else:
+            raise ValueError("smoothing must be either 'sma' or 'ema'")
+        return self.data
+
