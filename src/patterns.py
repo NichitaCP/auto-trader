@@ -78,6 +78,48 @@ class SRDetector:
         plt.show()
 
 
+class TrendDetector:
+    def __init__(self,
+                 data: pd.DataFrame = None) -> None:
+        if data is None:
+            raise ValueError("data must be specified")
+        self.data = data  # Copy might be needed, have to analyze behaviour
+
+    def _get_sma(self,
+                 ma_window: int = 20) -> None:
+        """Calculate the simple moving average of the candle range. Window size is n"""
+        self.data[f"sma_{ma_window}"] = self.data["Close"].rolling(ma_window).mean()
+
+    def _get_ema(self,
+                 ma_window: int = 20) -> None:
+        """Calculate the exponential moving average of the candle range. Window size is n"""
+        self.data[f"ema_{ma_window}"] = self.data["Close"].ewm(span=ma_window, adjust=False).mean()
+
+    def get_trend(self,
+                  ma_window: int = 20,
+                  trend_candles_check: int = 10,
+                  method: Literal["sma", "ema"] = "sma") -> None:
+        """Get the trend of the candle range"""
+        if method == "sma":
+            self._get_sma(ma_window)
+            moving_avg_col = f"sma_{ma_window}"
+        elif method == "ema":
+            self._get_ema(ma_window)
+            moving_avg_col = f"ema_{ma_window}"
+        else:
+            raise ValueError("method must be either 'sma' or 'ema'")
+
+        mask_above_ma = self.data["Close"] > self.data[moving_avg_col]
+        mask_below_ma = self.data["Close"] < self.data[moving_avg_col]
+
+        uptrend_condition = mask_above_ma.rolling(window=trend_candles_check).sum() == trend_candles_check
+        downtrend_condition = mask_below_ma.rolling(window=trend_candles_check).sum() == trend_candles_check
+
+        self.data["trend"] = "Mixed"
+        self.data.loc[uptrend_condition, "trend"] = "Uptrend"
+        self.data.loc[downtrend_condition, "trend"] = "Downtrend"
+
+
 class KangarooTailDetector:
     def __init__(self,
                  data: pd.DataFrame = None) -> None:
@@ -151,6 +193,7 @@ class BigShadowDetector:
         self.data = data
         self._validate_data()
         self.data = data.copy()
+        self.trend_detector = TrendDetector(data=self.data)
 
     def _validate_data(self) -> None:
         """Validate the data"""
@@ -162,6 +205,15 @@ class BigShadowDetector:
                 raise ValueError(f"{col} not in data")
         if not isinstance(self.data.index, pd.DatetimeIndex):
             raise ValueError("Data index must be a datetime index")
+
+    def _get_trend(self,
+                   ma_window: int = 20,
+                   trend_candles_check: int = 10,
+                   method: Literal["sma", "ema"] = "sma") -> None:
+        """Get the trend of the candle range"""
+        self.trend_detector.get_trend(ma_window=ma_window,
+                                      trend_candles_check=trend_candles_check,
+                                      method=method)
 
     def _bullish_close_higher_than_last_open(self) -> None:
         """Check if the close price is higher than the last open price"""
@@ -197,40 +249,6 @@ class BigShadowDetector:
             last_n_ranges_max = np.max(last_n_ranges)
             self.data.loc[self.data.index[index], f"bigger_than_{n}_prev_candles"] = current_range > last_n_ranges_max
 
-    def _get_sma(self,
-                 ma_window: int = 10) -> None:
-        """Calculate the simple moving average of the candle range. Window size is n"""
-        self.data[f"sma_{ma_window}"] = self.data["Close"].rolling(ma_window).mean()
-
-    def _get_ema(self,
-                 ma_window: int = 10) -> None:
-        """Calculate the exponential moving average of the candle range. Window size is n"""
-        self.data[f"ema_{ma_window}"] = self.data["Close"].ewm(span=ma_window, adjust=False).mean()
-
-    def _get_trend(self,
-                   ma_window: int = 20,
-                   trend_candles_check: int = 10,
-                   method: Literal["ema", "sma"] = "sma") -> None:
-        """Get the trend of the candle range"""
-        if method == "sma":
-            self._get_sma(ma_window)
-            moving_avg_col = f"sma_{ma_window}"
-        elif method == "ema":
-            self._get_ema(ma_window)
-            moving_avg_col = f"ema_{ma_window}"
-        else:
-            raise ValueError("method must be either 'sma' or 'ema'")
-
-        mask_above_ma = self.data["Close"] > self.data[moving_avg_col]
-        mask_below_ma = self.data["Close"] < self.data[moving_avg_col]
-
-        uptrend_condition = mask_above_ma.rolling(window=trend_candles_check).sum() == trend_candles_check
-        downtrend_condition = mask_below_ma.rolling(window=trend_candles_check).sum() == trend_candles_check
-
-        self.data["trend"] = "Mixed"
-        self.data.loc[uptrend_condition, "trend"] = "Uptrend"
-        self.data.loc[downtrend_condition, "trend"] = "Downtrend"
-
     def _close_price_near_low(self) -> None:
         """Check if the close price is near the low of the candle"""
         self.data["low_to_close"] = abs(self.data.Low - self.data.Close)
@@ -253,8 +271,8 @@ class BigShadowDetector:
         self._bigger_body_range_than_last_candle()
         self._bearish_close_lower_than_last_open()
         self._bigger_than_previous_n_candles(n)
-        self._get_trend(ma_window=ma_window, method=method, trend_candles_check=trend_check_window)
         self._close_price_near_low()
+        self._get_trend(ma_window=ma_window, method=method, trend_candles_check=trend_check_window)
         self.data["bearish_big_shadow"] = ((self.data["engulfing"])
                                            & (self.data[f"bigger_than_{n}_prev_candles"])
                                            & (self.data["bearish_close_lower_than_last_open"])
@@ -268,11 +286,11 @@ class BigShadowDetector:
                                      trend_check_window: int = 10,
                                      method: Literal["sma", "ema"] = "sma") -> None:
         """Identify the bullish big shadow"""
+        self._get_trend(ma_window=ma_window, method=method, trend_candles_check=trend_check_window)
         self._bigger_high_low_than_last_candle()
         self._bigger_body_range_than_last_candle()
         self._bullish_close_higher_than_last_open()
         self._bigger_than_previous_n_candles(n)
-        self._get_trend(ma_window=ma_window, method=method, trend_candles_check=trend_check_window)
         self._close_price_near_high()
         self.data["bullish_big_shadow"] = ((self.data["engulfing"])
                                            & (self.data[f"bigger_than_{n}_prev_candles"])

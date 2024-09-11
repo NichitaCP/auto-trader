@@ -93,7 +93,8 @@ def test_missing_columns():
 
 @pytest.mark.parametrize("detector", ["uptrend_data"], indirect=True)
 def test_uptrend_detection(detector):
-    detector._get_trend(ma_window=2, method="ema", trend_candles_check=1)
+    detector._get_trend(ma_window=2, method="sma", trend_candles_check=1)
+    assert 'trend' in detector.data.columns
     assert detector.data['trend'].iloc[-1] == 'Uptrend'
 
 
@@ -112,7 +113,7 @@ def test_bearish_big_shadow(detector):
 
 
 @pytest.mark.parametrize("detector", ["bullish_big_shadow_data"], indirect=True)
-def test_bearish_big_shadow(detector):
+def test_bullish_big_shadow(detector):
     """Test that verifies the detection of a bearish big shadow after an uptrend."""
     detector.get_big_shadow(n=7, trend_check_window=10, ma_window=20, method="sma")
     assert 'bullish_big_shadow' in detector.data.columns
