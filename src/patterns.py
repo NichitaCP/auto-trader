@@ -6,6 +6,24 @@ import matplotlib.pyplot as plt
 from typing import Tuple, Literal
 
 
+def detect_bullish_candle(open_price: float,
+                          close_price: float,
+                          high_price: float) -> bool:
+    """Detect a bullish candle"""
+    close_near_high = (close_price - high_price) < ((high_price - open_price)*0.5)
+    close_above_open = close_price > open_price
+    return close_near_high and close_above_open
+
+
+def detect_bearish_candle(open_price: float,
+                          close_price: float,
+                          low_price: float) -> bool:
+    """Detect a bearish candle"""
+    close_near_low = (low_price - close_price) < ((close_price - open_price)*0.5)
+    close_below_open = close_price < open_price
+    return close_near_low and close_below_open
+
+
 class SRDetector:
     def __init__(self,
                  data: pd.DataFrame = None,
@@ -78,6 +96,90 @@ class SRDetector:
         plt.show()
 
 
+class AddSupportResistanceToData:
+    def __init__(self,
+                 data: pd.DataFrame = None) -> None:
+        """Be aware the data is modified in place."""
+        if data is None:
+            raise ValueError("data must be specified")
+        self.data = data
+
+    def _get_sr_levels(self,
+                       col_to_use: str = "Close",
+                       bw_method: float = 0.5,
+                       prominence: float = 0.05) -> np.ndarray:
+        """Get the support and resistance levels"""
+        sr_detector = SRDetector(data=self.data, col_to_use=col_to_use, bw_method=bw_method, prominence=prominence)
+        return sr_detector.get_sr_levels()
+
+    def _get_support_indexes(self,
+                             col_to_use: str = "Close",
+                             levels: np.ndarray = None):
+        """Get the indexes of the support levels"""
+        if levels is None:
+            raise ValueError("levels must be specified")
+        support_indexes = np.argmax(levels > self.data[col_to_use].values[:, None], axis=1) - 1
+        return support_indexes
+
+    def _get_resistance_indexes(self,
+                                col_to_use: str = "Close",
+                                levels: np.ndarray = None):
+        """Get the indexes of the resistance levels"""
+        if levels is None:
+            raise ValueError("levels must be specified")
+        resistance_indexes = np.argmax(levels > self.data[col_to_use].values[:, None], axis=1)
+        return resistance_indexes
+
+    def add_s_r_levels_to_data(self,
+                               col_to_use: str = "Close",
+                               bw_method: float = 0.5,
+                               prominence: float = 0.05) -> None:
+        """Add the support and resistance levels to the data."""
+        sr_levels = self._get_sr_levels(col_to_use=col_to_use, bw_method=bw_method, prominence=prominence)
+        support_indexes = self._get_support_indexes(col_to_use=col_to_use, levels=sr_levels)
+        resistance_indexes = self._get_resistance_indexes(col_to_use=col_to_use, levels=sr_levels)
+        self.data["next_support"] = sr_levels[support_indexes]
+        self.data["next_resistance"] = sr_levels[resistance_indexes]
+
+        """
+        This part avoids the next support to be mapped to index -1, meaning hihgest support.
+        Similarly, we want to map the max resistance to the highest resistance if that level wasn't 
+        found by our KDE method.
+        """
+        price_below_support_mask = self.data[col_to_use] < self.data["next_support"]
+        price_above_resistance_mask = self.data[col_to_use] > self.data["next_resistance"]
+        self.data.loc[price_below_support_mask, "next_support"] = self.data.Close.min()
+        self.data.loc[price_above_resistance_mask, "next_resistance"] = self.data.Close.max()
+
+
+class AverageTrueRange:
+    def __init__(self,
+                 data: pd.DataFrame = None) -> None:
+        if data is None:
+            raise ValueError("data must be specified")
+        self.data = data.copy()
+
+    def _get_true_range(self):
+        """Calculate the true range of the data"""
+        high_low = self.data.High - self.data.Low
+        high_prev_close = abs(self.data.High - self.data.Close.shift(1))
+        low_prev_close = abs(self.data.Low - self.data.Close.shift(1))
+        self.data["true_range"] = np.max([high_low, high_prev_close, low_prev_close], axis=0)
+
+    def get_atr(self,
+                window: int = 14,
+                smoothing: Literal["ema", "sma"] = "sma") -> pd.DataFrame:
+        """Compute the average true range given a window size"""
+        self._get_true_range()
+        if smoothing == "sma":
+            self.data["atr"] = self.data["true_range"].rolling(window).mean()
+        elif smoothing == "ema":
+            self.data["atr"] = self.data["true_range"].ewm(span=window, adjust=False).mean()
+        else:
+            raise ValueError("smoothing must be either 'sma' or 'ema'")
+        return self.data
+
+
 class TrendDetector:
     def __init__(self,
                  data: pd.DataFrame = None) -> None:
@@ -112,6 +214,12 @@ class TrendDetector:
         mask_above_ma = self.data["Close"] > self.data[moving_avg_col]
         mask_below_ma = self.data["Close"] < self.data[moving_avg_col]
 
+        """
+        For future. Tinkering with this part might give better tren detection
+        Currently we are checking that exactly {trend_candles_check} close prices are above 
+        or below the MA.
+        """
+
         uptrend_condition = mask_above_ma.rolling(window=trend_candles_check).sum() == trend_candles_check
         downtrend_condition = mask_below_ma.rolling(window=trend_candles_check).sum() == trend_candles_check
 
@@ -129,6 +237,7 @@ class KangarooTailDetector:
         self.data = data.copy()
         self._validate_data()
 
+    # Will probably move this outside as a static function
     def _validate_data(self) -> None:
         """Validate the data"""
         required_columns = ["Open", "High", "Low", "Close"]
@@ -142,11 +251,13 @@ class KangarooTailDetector:
         """Calculate the body size of the candle"""
         body_lengths = abs(self.data.Open - self.data.Close)
         if (body_lengths == 0).any():
-            raise ValueError("Body length cannot be 0")
+            body_lengths[body_lengths == 0] = 0.0001
         return body_lengths
 
     def _calculate_candle_tail_size(self) -> Tuple[np.ndarray, np.ndarray]:
         """Calculate the tail size of the candle"""
+
+        # Depending on the nature of candle (Bearish/Bullish), the tail is calculated differently.
         lower_tail = np.where(self.data.Open < self.data.Close,
                               self.data.Open - self.data.Low,
                               self.data.Close - self.data.Low)
@@ -190,6 +301,7 @@ class KangarooTailDetector:
 class BigShadowDetector:
     def __init__(self,
                  data: pd.DataFrame = None) -> None:
+        # Initialization is probably suboptimal lol (the first 3 lines at least)
         self.data = data
         self._validate_data()
         self.data = data.copy()
@@ -314,33 +426,5 @@ class BigShadowDetector:
                                           ma_window=ma_window,
                                           method=method,
                                           trend_check_window=trend_check_window)
-        return self.data
-
-
-class AverageTrueRange:
-    def __init__(self,
-                 data: pd.DataFrame = None) -> None:
-        if data is None:
-            raise ValueError("data must be specified")
-        self.data = data.copy()
-
-    def _get_true_range(self):
-        """Calculate the true range of the data"""
-        high_low = self.data.High - self.data.Low
-        high_prev_close = abs(self.data.High - self.data.Close.shift(1))
-        low_prev_close = abs(self.data.Low - self.data.Close.shift(1))
-        self.data["true_range"] = np.max([high_low, high_prev_close, low_prev_close], axis=0)
-
-    def get_atr(self,
-                window: int = 14,
-                smoothing: Literal["ema", "sma"] = "sma") -> pd.DataFrame:
-        """Compute the average true range given a window size"""
-        self._get_true_range()
-        if smoothing == "sma":
-            self.data["atr"] = self.data["true_range"].rolling(window).mean()
-        elif smoothing == "ema":
-            self.data["atr"] = self.data["true_range"].ewm(span=window, adjust=False).mean()
-        else:
-            raise ValueError("smoothing must be either 'sma' or 'ema'")
         return self.data
 
