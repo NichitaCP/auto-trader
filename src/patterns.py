@@ -6,22 +6,24 @@ import matplotlib.pyplot as plt
 from typing import Tuple, Literal
 
 
-def detect_bullish_candle(open_price: float,
-                          close_price: float,
-                          high_price: float) -> bool:
-    """Detect a bullish candle"""
-    close_near_high = (close_price - high_price) < ((high_price - open_price)*0.5)
-    close_above_open = close_price > open_price
-    return close_near_high and close_above_open
+def detect_next_candle_bullish(data: pd.DataFrame):
+    shifted_open = data['Open'].shift(-1)
+    shifted_close = data['Close'].shift(-1)
+    shifted_high = data['High'].shift(-1)
+
+    close_near_high = (shifted_high - shifted_close) < ((shifted_close - shifted_open) * 0.5)
+    close_above_open = shifted_close > shifted_open
+    return close_near_high & close_above_open
 
 
-def detect_bearish_candle(open_price: float,
-                          close_price: float,
-                          low_price: float) -> bool:
-    """Detect a bearish candle"""
-    close_near_low = (low_price - close_price) < ((close_price - open_price)*0.5)
-    close_below_open = close_price < open_price
-    return close_near_low and close_below_open
+def detect_next_candle_bearish(data: pd.DataFrame):
+    shifted_open = data['Open'].shift(-1)
+    shifted_close = data['Close'].shift(-1)
+    shifted_low = data['Low'].shift(-1)
+
+    close_near_low = (shifted_close - shifted_low) < ((shifted_open - shifted_close) * 0.5)
+    close_below_open = shifted_close < shifted_open
+    return close_near_low & close_below_open
 
 
 class SRDetector:
@@ -157,7 +159,7 @@ class AverageTrueRange:
                  data: pd.DataFrame = None) -> None:
         if data is None:
             raise ValueError("data must be specified")
-        self.data = data.copy()
+        self.data = data
 
     def _get_true_range(self):
         """Calculate the true range of the data"""
@@ -168,7 +170,7 @@ class AverageTrueRange:
 
     def get_atr(self,
                 window: int = 14,
-                smoothing: Literal["ema", "sma"] = "sma") -> pd.DataFrame:
+                smoothing: Literal["ema", "sma"] = "sma") -> None:
         """Compute the average true range given a window size"""
         self._get_true_range()
         if smoothing == "sma":
@@ -177,7 +179,6 @@ class AverageTrueRange:
             self.data["atr"] = self.data["true_range"].ewm(span=window, adjust=False).mean()
         else:
             raise ValueError("smoothing must be either 'sma' or 'ema'")
-        return self.data
 
 
 class TrendDetector:
@@ -234,7 +235,7 @@ class KangarooTailDetector:
 
         if data is None:
             raise ValueError("data must be specified")
-        self.data = data.copy()
+        self.data = data
         self._validate_data()
 
     # Will probably move this outside as a static function
@@ -292,10 +293,9 @@ class KangarooTailDetector:
         self.data["green_kangaroo_tail"] = np.where(green_kangaroo_tail_condition, 1, 0)
         self.data["red_kangaroo_tail"] = np.where(red_kangaroo_tail_condition, 1, 0)
 
-    def identify_kangaroo_tails(self) -> pd.DataFrame:
+    def identify_kangaroo_tails(self) -> None:
         """Identify the kangaroo tails"""
         self._identify_conditions()
-        return self.data
 
 
 class BigShadowDetector:
@@ -304,7 +304,6 @@ class BigShadowDetector:
         # Initialization is probably suboptimal lol (the first 3 lines at least)
         self.data = data
         self._validate_data()
-        self.data = data.copy()
         self.trend_detector = TrendDetector(data=self.data)
 
     def _validate_data(self) -> None:
@@ -415,7 +414,7 @@ class BigShadowDetector:
                        n: int = 7,  # Number of candles to lookback for the range
                        ma_window: int = 20,
                        trend_check_window: int = 10,
-                       method: Literal["sma", "ema"] = "sma") -> pd.DataFrame:
+                       method: Literal["sma", "ema"] = "sma") -> None:
         """Get the big shadow"""
         self._identify_bearish_big_shadow(n=n,
                                           ma_window=ma_window,
@@ -426,5 +425,3 @@ class BigShadowDetector:
                                           ma_window=ma_window,
                                           method=method,
                                           trend_check_window=trend_check_window)
-        return self.data
-
