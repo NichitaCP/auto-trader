@@ -1,9 +1,10 @@
-import yfinance
 import datetime as dt
 from src.patterns import AverageTrueRange, TrendDetector, detect_next_candle_bullish
 from src.patterns import detect_next_candle_bearish
 import pandas as pd
 import os
+from src.strategy_testing.optimizer_refactored import get_mt5_data, connect_to_mt5
+import MetaTrader5 as mt5
 
 
 def get_position_size(account_size, risk_per_trade, stop_loss_distance):
@@ -35,6 +36,8 @@ def run_strategy(data, ticker, entry_atr_factor, rrr, atr_factor):
     prepare_data_for_signal(data)
     prev_candle = data.iloc[-2]
     atr = prev_candle["atr"]
+    buy_stop, stop_loss, take_profit, position_size = None, None, None, None
+    open_order_now = False
     if get_buy_signal(prev_candle):
         buy_stop, stop_loss, take_profit = calculate_long_entry_prices(prev_candle, entry_atr_factor, rrr, atr_factor,
                                                                        atr)
@@ -43,27 +46,54 @@ def run_strategy(data, ticker, entry_atr_factor, rrr, atr_factor):
         print(f"Long signal detected for {ticker}\n{'#' * 50}")
         print(f"Buy stop: {buy_stop}\nStop loss: {stop_loss}\nTake profit: {take_profit}")
         print(f"Position size: {position_size}")
+        open_order_now = True
     else:
         print(f"No signal detected")
+    return open_order_now, ticker, buy_stop, stop_loss, take_profit, position_size
 
 
-def get_signals_for_tickers_15m():
-    csv_path = os.path.abspath(r"C:\Users\Nichita\auto-trader\src\strategy_results\best_params_and_stats_FTMO_symbols.csv")
+def get_signals_for_tickers_15m(csv_path, login, password, server):
+    csv_path = os.path.abspath(csv_path)
     results = pd.read_csv(csv_path)
+    connect_to_mt5(login, password, server)
+    signal_results_dict = {}
 
-    for ticker, entry_atr_factor, atr_factor, rrr in zip(results["ticker"], results["entry_atr_factor"],
-                                                         results["atr_factor"], results["rrr"]):
-        df = yfinance.download(ticker,
-                               start=dt.datetime.now() - dt.timedelta(days=50),
-                               end=dt.datetime.now(),
-                               interval='15m')
+    for ticker, entry_atr_factor, atr_factor, rrr in zip(results["ticker"].values, results["entry_atr_factor"].values,
+                                                         results["atr_factor"].values, results["rrr"].values):
+        print(ticker)
+        # df = yfinance.download(ticker,
+        #                        start=dt.datetime.now() - dt.timedelta(days=50),
+        #                        end=dt.datetime.now(),
+        #                        interval='15m')
+        start, end = dt.datetime.now() - dt.timedelta(days=5), dt.datetime.now()
+        data = get_mt5_data(mt5.TIMEFRAME_M15, ticker, start, end)
 
-        run_strategy(df,
-                     ticker=ticker,
-                     entry_atr_factor=entry_atr_factor,
-                     atr_factor=atr_factor,
-                     rrr=rrr)
+        """
+        T = ticker; BS = buy_stop; SL = stop_loss; TP = take_profit; PS = position_size
+        """
+        enter_position, T, BS, SL, TP, PS = run_strategy(data,
+                                                         ticker=ticker,
+                                                         entry_atr_factor=entry_atr_factor,
+                                                         atr_factor=atr_factor,
+                                                         rrr=rrr)
+        signal_results_dict[ticker] = {
+            "enter_position": enter_position,
+            "T": T,
+            "BS": BS,
+            "SL": SL,
+            "TP": TP,
+            "PS": PS
+        }
+    return signal_results_dict
 
 
 if __name__ == "__main__":
-    get_signals_for_tickers_15m()
+    results = get_signals_for_tickers_15m(
+        csv_path="../livetesting/crypto/crypto_strategy_params.csv",
+        login=51958387,
+        password="W3A&9BJbtX3&NX",
+        server="ICMarketsEU-Demo")
+
+    for ticker in results:
+        for key, value in results[ticker].items():
+            print(f"{key}: {value}")
