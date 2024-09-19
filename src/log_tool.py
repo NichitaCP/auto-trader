@@ -3,6 +3,7 @@ import logging.config
 import os
 from functools import wraps
 from datetime import datetime
+import MetaTrader5 as mt5
 
 log_directory = os.path.join(os.getcwd(), "logs")
 if not os.path.exists(log_directory):
@@ -52,8 +53,12 @@ def log_trade(func):
         entry_price = kwargs.get('stop_price')  # Entry price is the stop_price in the function args
         stop_loss = kwargs.get('stop_loss')
         take_profit = kwargs.get('take_profit')
+        order_type = kwargs.get('order_type')
+        order_type_map = {"Long": mt5.ORDER_TYPE_BUY_STOP,
+                          "Short": mt5.ORDER_TYPE_SELL_STOP}
+        order_kind = order_type_map[order_type]
 
-        log_message = f'{symbol}|LONG|{entry_price}|{stop_loss}|{take_profit}|{position_size}'
+        log_message = f'{symbol}|{order_kind}|{entry_price}|{stop_loss}|{take_profit}|{position_size}'
         logger.info(log_message)
 
         return func(*args, **kwargs)

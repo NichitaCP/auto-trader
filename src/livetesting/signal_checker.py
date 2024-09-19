@@ -7,16 +7,13 @@ from src.strategy_testing.optimizer_refactored import get_mt5_data, connect_to_m
 import MetaTrader5 as mt5
 
 
-def get_position_size(account_size, risk_per_trade, stop_loss_distance, forex=False):
-    if forex:
-        size_dict = {"EURUSD": 0.5,
-                     "EURAUD": 0.4}
-        return size_dict
-
-    return (account_size * risk_per_trade) / stop_loss_distance
+def get_position_size(account_size, risk_per_trade, stop_loss_distance, one_lot_value=100_000):
+    size = (account_size * risk_per_trade) / stop_loss_distance
+    size_in_lots = size / one_lot_value
+    return size_in_lots
 
 
-def get_position_size_test_forex(account_size, risk_per_trade, stop_loss_distance):
+def get_position_size_forex(account_size, risk_per_trade, stop_loss_distance):
     # 0.01 = 1000 EUR
     size = (account_size * risk_per_trade) / stop_loss_distance
     size_in_lots = size / 100_000
@@ -57,7 +54,9 @@ def get_sell_signal(prev_candle):
         return True
 
 
-def run_strategy(data, ticker, entry_atr_factor, rrr, atr_factor, account_size=20000, risk_per_trade=0.01):
+def run_strategy(data, ticker, entry_atr_factor, rrr, atr_factor,
+                 account_size=20000, risk_per_trade=0.01, round_factor=5, one_lot_value=100_000):
+
     prepare_data_for_signal(data)
     prev_candle = data.iloc[-2]
     atr = prev_candle["atr"]
@@ -68,11 +67,13 @@ def run_strategy(data, ticker, entry_atr_factor, rrr, atr_factor, account_size=2
                                                                          entry_atr_factor,
                                                                          rrr,
                                                                          atr_factor,
-                                                                         atr)
+                                                                         atr,
+                                                                         round_factor=round_factor)
         stop_loss_distance = stop_price - stop_loss
-        position_size = get_position_size_test_forex(account_size=account_size,
-                                                     risk_per_trade=risk_per_trade,
-                                                     stop_loss_distance=stop_loss_distance)
+        position_size = get_position_size(account_size=account_size,
+                                          risk_per_trade=risk_per_trade,
+                                          stop_loss_distance=stop_loss_distance,
+                                          one_lot_value=one_lot_value)
         print(f"Long signal detected for {ticker}\n{'#' * 50}")
         print(f"Buy stop: {stop_price}\nStop loss: {stop_loss}\nTake profit: {take_profit}")
         print(f"Position size: {position_size}")
@@ -84,11 +85,14 @@ def run_strategy(data, ticker, entry_atr_factor, rrr, atr_factor, account_size=2
                                                                           entry_atr_factor,
                                                                           rrr,
                                                                           atr_factor,
-                                                                          atr)
+                                                                          atr,
+                                                                          round_factor=round_factor)
         stop_loss_distance = stop_loss - stop_price
-        position_size = get_position_size_test_forex(account_size=account_size,
-                                                     risk_per_trade=risk_per_trade,
-                                                     stop_loss_distance=stop_loss_distance)
+        position_size = get_position_size(account_size=account_size,
+                                          risk_per_trade=risk_per_trade,
+                                          stop_loss_distance=stop_loss_distance,
+                                          one_lot_value=one_lot_value)
+
         print(f"Short signal detected for {ticker}\n{'#' * 50}")
         print(f"Sell stop: {stop_price}\nStop loss: {stop_loss}\nTake profit: {take_profit}")
         print(f"Position size: {position_size}")
@@ -108,7 +112,9 @@ def get_signals_for_tickers(csv_path,
                             start_pos=0,
                             bar_count=500,
                             account_size=20000,
-                            risk_per_trade=0.01):
+                            risk_per_trade=0.01,
+                            round_factor=5,
+                            one_lot_value=100_000):
     csv_path = os.path.abspath(csv_path)
     results = pd.read_csv(csv_path)
     connect_to_mt5(login, password, server)
@@ -128,7 +134,9 @@ def get_signals_for_tickers(csv_path,
                                                              atr_factor=atr_factor,
                                                              rrr=rrr,
                                                              account_size=account_size,
-                                                             risk_per_trade=risk_per_trade)
+                                                             risk_per_trade=risk_per_trade,
+                                                             round_factor=round_factor,
+                                                             one_lot_value=one_lot_value)
         signal_results_dict[ticker] = {
             "enter_position": enter_position,
             "T": T,
@@ -138,20 +146,20 @@ def get_signals_for_tickers(csv_path,
             "PS": PS,
             "PT": PT
         }
-        print(data.tail(3))
     return signal_results_dict
 
 
 if __name__ == "__main__":
     results_ = get_signals_for_tickers(
-        csv_path="../livetesting/FTMO/EURUSD.csv",
+        csv_path="../livetesting/FTMO/XAUUSD.csv",
         login=1510009878,
         password="825$tnr$DJ",
         server="FTMO-Demo",
         timeframe=mt5.TIMEFRAME_M15,
-        start_pos=0,
+        start_pos=1,
         account_size=20000,
-        risk_per_trade=0.005)
+        risk_per_trade=0.005,
+        one_lot_value=260000)
 
     for ticker_ in results_:
         for key, value in results_[ticker_].items():

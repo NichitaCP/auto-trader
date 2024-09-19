@@ -1,0 +1,3 @@
+ticker,size,atr_factor,entry_atr_factor,rrr
+EURUSD,50000,1.37,0.32,2.4
+EURAUD,40000,0.53,0.05,1.4

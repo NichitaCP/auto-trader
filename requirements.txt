@@ -130,3 +130,4 @@ xyzservices==2024.9.0
 yfinance==0.2.43
 
 Backtesting~=0.3.4.dev30+g0ce24d8
+schedule~=1.2.2
