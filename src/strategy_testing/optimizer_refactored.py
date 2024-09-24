@@ -102,16 +102,17 @@ def main():
             f.write("ticker,size,atr_factor,entry_atr_factor,rrr,return,max_dd,avg_dd,sharpe,win_rate,expectancy\n")
 
     # Define the pairs to optimize
-    eur_low_spread_pairs = ["NZDJPY", "CHFJPY"]
+    crypto = ["ETHUSD", "BTCUSD"]
+    eur_low_spread_pairs = ["NZDCAD", "NZDUSD"]
     commodities = ["XAUUSD", "XAUUSD"]
 
     connect_to_mt5(login, password, server)
 
-    for ticker in eur_low_spread_pairs:
+    for ticker in crypto:
         # now = dt.datetime.now().replace(tzinfo=None)
         # start = now - dt.timedelta(days=30)
         start_pos = 1
-        count_bars = 20000
+        count_bars = 15000
 
         data = get_mt5_data(mt5.TIMEFRAME_M15, ticker, start_pos, count_bars)
         if data is None:
@@ -121,14 +122,14 @@ def main():
         stats = optimize_strategy(
             strategy=KangarooTailStrategy,
             data=data,
-            size=list(np.arange(100, 1000, 50)),
-            entry_atr_factor=list(np.arange(0.5, 1.25, 0.025)),
-            atr_factor=list(np.arange(0.5, 2, 0.05)),
+            size=list(np.arange(1, 100, 1)),
+            entry_atr_factor=list(np.arange(0.15, 1.25, 0.025)),
+            atr_factor=list(np.arange(0.2, 2, 0.05)),
             rrr=list(np.arange(1.1, 3, 0.05)),
             maximize="Expectancy [%]",
             max_tries=200,
-            cash=20000,
-            commission=0.0001,
+            cash=200000,
+            commission=0.00035,
             margin=0.05
         )
         log_best_params_and_stats(ticker, stats, file_name)

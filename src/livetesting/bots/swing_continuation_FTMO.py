@@ -7,7 +7,8 @@ from src.livetesting.bots.functions_for_bots import (check_if_positions_are_open
                                                      open_long_trade_for_symbol, open_short_trade_for_symbol)
 
 
-def run_bot(params_csv_path, timeframe, start_pos, risk_per_trade, account_size, round_factor, one_lot_value):
+def run_bot(params_csv_path, timeframe, start_pos, risk_per_trade,
+            account_size, round_factor, pip_value_per_lot, pip_size):
     results = get_signals_for_tickers(
             csv_path=params_csv_path,
             login=1510009878,
@@ -18,7 +19,8 @@ def run_bot(params_csv_path, timeframe, start_pos, risk_per_trade, account_size,
             risk_per_trade=risk_per_trade,
             account_size=account_size,
             round_factor=round_factor,
-            one_lot_value=one_lot_value)
+            pip_value_per_lot=pip_value_per_lot,
+            pip_size=pip_size)
 
     for ticker in results:
         open_orders = check_if_orders_are_open(symbol=ticker)
@@ -57,34 +59,29 @@ def main():
     run_bot(params_csv_path=eur_fx_path,
             timeframe=mt5.TIMEFRAME_M15,
             start_pos=1,
-            risk_per_trade=0.004,
+            risk_per_trade=0.0075,
             account_size=20000,
             round_factor=5,
-            one_lot_value=100_000)
+            pip_value_per_lot=9.5,
+            pip_size=0.0001)
 
     run_bot(params_csv_path=xag_path,
             timeframe=mt5.TIMEFRAME_M15,
             start_pos=1,
-            risk_per_trade=0.004,
+            risk_per_trade=0.0075,
             account_size=20000,
             round_factor=3,
-            one_lot_value=150_000)
-
-    run_bot(params_csv_path=xau_path,
-            timeframe=mt5.TIMEFRAME_M15,
-            start_pos=1,
-            risk_per_trade=0.002,
-            account_size=20000,
-            round_factor=2,
-            one_lot_value=258_000)
+            pip_value_per_lot=50,
+            pip_size=0.01)
 
     run_bot(params_csv_path=jpy_path,
             timeframe=mt5.TIMEFRAME_M15,
             start_pos=1,
-            risk_per_trade=0.002,
+            risk_per_trade=0.0075,
             account_size=20000,
-            round_factor=2,
-            one_lot_value=258_000)
+            round_factor=3,
+            pip_value_per_lot=7,
+            pip_size=0.01)
 
 
 if __name__ == "__main__":
