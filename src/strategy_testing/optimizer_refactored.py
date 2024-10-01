@@ -1,53 +1,12 @@
 import pandas as pd
 from backtesting import Backtest
-from src.patterns import AverageTrueRange, AddSupportResistanceToData, TrendDetector, KangarooTailDetector
-from src.patterns import detect_next_candle_bullish, detect_next_candle_bearish
-import datetime as dt
+from src.trade_functions import connect_to_mt5, get_mt5_data, prepare_data_for_backtest_optimization
 import numpy as np
-from src.strategy_testing.strategy import KangarooTailStrategy
+from src.strategy_testing.strategy import KangarooTailStrategy, FVGStrategy
 import warnings
 import os
 import MetaTrader5 as mt5
 from typing import Iterable
-
-
-def connect_to_mt5(login, password, server):
-    if not mt5.initialize(login=login, password=password, server=server):
-        print(f"Failed to connect to MetaTrader 5 with login {login}, error: {mt5.last_error()}")
-        mt5.shutdown()
-    # else:
-    #     print(f"Connected to MetaTrader 5, login: {login}")
-
-
-def get_mt5_data(time_frame, symbol, start_pos, bar_count):
-    if not mt5.symbol_select(symbol, True):
-        print(f"Failed to select {symbol}")
-    rates = mt5.copy_rates_from_pos(symbol, time_frame, start_pos, bar_count)
-    if rates is not None:
-        # Convert to DataFrame for better handling and readability
-        df = pd.DataFrame(rates)
-        df['time'] = pd.to_datetime(df['time'], unit='s')  # Convert time to readable format
-        df.index = df.time
-    else:
-        print(f"Could not retrieve data for {symbol} in the given time frame")
-        df = None
-    return df[["high", "low", "close", "open"]].rename(columns={
-        "high": "High",
-        "low": "Low",
-        "close": "Close",
-        "open": "Open"})
-
-
-def prepare_data_for_backtest_optimization(data):
-    AverageTrueRange(data).get_atr()
-    AddSupportResistanceToData(data).add_s_r_levels_to_data("Close", bw_method=0.05, prominence=0.1)
-    KangarooTailDetector(data).identify_kangaroo_tails()
-    TrendDetector(data).get_trend(ma_window=50, trend_candles_check=10)
-    data["next_candle_bullish"] = detect_next_candle_bullish(data)
-    data["next_candle_bearish"] = detect_next_candle_bearish(data)
-    data["next_high"] = data.High.shift(-1)
-    data["next_low"] = data.Low.shift(-1)
-    return data
 
 
 def optimize_strategy(
@@ -57,7 +16,9 @@ def optimize_strategy(
         commission: float = 0.0002,
         margin: float = 1,
         size: Iterable = None,
-        entry_atr_factor: Iterable = None,
+        # entry_atr_factor: Iterable = None,
+        fvg_gap_factor: Iterable = None,
+        limit_factor: Iterable = None,
         atr_factor: Iterable = None,
         rrr: Iterable = None,
         maximize: str = "Sharpe Ratio",
@@ -67,7 +28,9 @@ def optimize_strategy(
     bt = Backtest(data, strategy, cash=cash, commission=commission, margin=margin, hedging=False, trade_on_close=trade_on_close)
     stats = bt.optimize(
         size=size,
-        entry_atr_factor=entry_atr_factor,
+        # entry_atr_factor=entry_atr_factor,
+        limit_factor=limit_factor,
+        fvg_gap_factor=fvg_gap_factor,
         atr_factor=atr_factor,
         rrr=rrr,
         maximize=maximize,
@@ -103,16 +66,16 @@ def main():
 
     # Define the pairs to optimize
     crypto = ["ETHUSD", "BTCUSD"]
-    eur_low_spread_pairs = ["NZDCAD", "NZDUSD"]
+    eur_low_spread_pairs = ["AUDJPY", "USDJPY"]
     commodities = ["XAUUSD", "XAUUSD"]
 
     connect_to_mt5(login, password, server)
 
-    for ticker in crypto:
+    for ticker in eur_low_spread_pairs:
         # now = dt.datetime.now().replace(tzinfo=None)
         # start = now - dt.timedelta(days=30)
         start_pos = 1
-        count_bars = 15000
+        count_bars = 40000
 
         data = get_mt5_data(mt5.TIMEFRAME_M15, ticker, start_pos, count_bars)
         if data is None:
@@ -120,19 +83,24 @@ def main():
 
         data = prepare_data_for_backtest_optimization(data)
         stats = optimize_strategy(
-            strategy=KangarooTailStrategy,
+            strategy=FVGStrategy,
             data=data,
-            size=list(np.arange(1, 100, 1)),
-            entry_atr_factor=list(np.arange(0.15, 1.25, 0.025)),
-            atr_factor=list(np.arange(0.2, 2, 0.05)),
+            size=list(range(100, 500, 25)),
+            # entry_atr_factor=list(np.arange(0.15, 1.25, 0.025)),
+            limit_factor=list(np.arange(0.05, 1, 0.05)),
+            fvg_gap_factor=list(np.arange(0.01, 0.75, 0.01)),
+            atr_factor=list(np.arange(0.05, 2, 0.025)),
             rrr=list(np.arange(1.1, 3, 0.05)),
             maximize="Expectancy [%]",
-            max_tries=200,
-            cash=200000,
-            commission=0.00035,
-            margin=0.05
+            max_tries=500,
+            cash=20000,
+            commission=3e-5,
+            margin=0.01
         )
-        log_best_params_and_stats(ticker, stats, file_name)
+        print(stats)
+        print("Best parameters:")
+        print(stats._strategy)
+        # log_best_params_and_stats(ticker, stats, file_name)
     mt5.shutdown()
 
 

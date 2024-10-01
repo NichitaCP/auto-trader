@@ -2,21 +2,6 @@ from backtesting import Strategy
 import numpy as np
 
 
-# Min winrate to rrr dict
-
-
-def optimize_winrate_and_expectancy(series):
-    if series["# Trades"] < 40:
-        return -1
-    return series["Win Rate [%]"] * series["Expectancy [%]"]
-
-
-def optimize_return_expectancy(series):
-    if series["# Trades"] < 40:
-        return -1
-    return series["Return [%]"] + 10 * series["Expectancy [%]"]
-
-
 class KangarooTailStrategy(Strategy):
 
     long_entry = True
@@ -82,15 +67,30 @@ class KangarooTailStrategy(Strategy):
                     self.sell(sl=stop_loss_short, tp=take_profit_short, stop=sell_stop, size=self.size)
 
 
-class BullishTradingStrategy(Strategy):
-    size = 0.1
-    entry_atr_factor = 0.15
-    atr_factor = 1.5
-    rrr = 2.0
+class FVGStrategy(Strategy):
+
+    size = 350
+    limit_factor = 0.2
+    atr_factor = 1.85
+    rrr = 2.7
+    fvg_gap_factor = 0.4
 
     def init(self):
         pass
 
     def next(self):
+        i = len(self.data) - 1
+        fvg = self.data.fvg[i]
+        fvg_gap = self.data.bullish_gap[i]
+        atr = self.data.atr[i]
 
-        i = len(self.data)
+        if not self.position:
+            if fvg_gap >= atr * self.fvg_gap_factor:
+                if fvg == 1:
+                    for order in self.orders:
+                        order.cancel()
+                    limit = self.data.Low[i] - fvg_gap * self.limit_factor
+                    stop_loss = self.data.bullish_fvg_lower_bound[i] - atr * self.atr_factor
+                    take_profit = limit + self.rrr * (limit - stop_loss)
+                    self.buy(sl=stop_loss, tp=take_profit, limit=limit, size=self.size)
+

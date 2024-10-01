@@ -3,7 +3,7 @@ from src.patterns import AverageTrueRange, TrendDetector, detect_next_candle_bul
 from src.patterns import detect_next_candle_bearish
 import pandas as pd
 import os
-from src.strategy_testing.optimizer_refactored import get_mt5_data, connect_to_mt5
+from src.trade_functions import connect_to_mt5, get_mt5_data
 import MetaTrader5 as mt5
 
 
